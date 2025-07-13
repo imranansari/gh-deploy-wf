@@ -73,6 +73,8 @@ func (a *GitHubActivities) CreateGitHubDeployment(ctx context.Context, input Cre
 		Str("github_repo", input.GithubRepo).
 		Str("commit", input.CommitSHA).
 		Str("environment", input.Environment).
+		Str("activity_id", activityInfo.ActivityID).
+		Int32("attempt", activityInfo.Attempt).
 		Msg("Creating GitHub deployment")
 	
 	// Record heartbeat
@@ -81,7 +83,12 @@ func (a *GitHubActivities) CreateGitHubDeployment(ctx context.Context, input Cre
 	// Create GitHub client
 	client, err := a.clientFactory.CreateClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+		logger.Error().
+			Err(err).
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Msg("Failed to create GitHub client")
+		return nil, fmt.Errorf("failed to create GitHub client for %s/%s: %w", input.GithubOwner, input.GithubRepo, err)
 	}
 	
 	// Prepare deployment payload
@@ -120,10 +127,19 @@ func (a *GitHubActivities) CreateGitHubDeployment(ctx context.Context, input Cre
 	activity.RecordHeartbeat(ctx, "Calling GitHub API")
 	
 	// Create deployment
-	deployment, _, err := client.Repositories.CreateDeployment(ctx, input.GithubOwner, input.GithubRepo, deploymentRequest)
+	deployment, response, err := client.Repositories.CreateDeployment(ctx, input.GithubOwner, input.GithubRepo, deploymentRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to create GitHub deployment")
-		return nil, fmt.Errorf("failed to create deployment: %w", err)
+		logger.Error().
+			Err(err).
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Str("commit", input.CommitSHA).
+			Str("environment", input.Environment).
+			Int("http_status", response.StatusCode).
+			Str("response_status", response.Status).
+			Msg("Failed to create GitHub deployment")
+		return nil, fmt.Errorf("failed to create deployment for %s/%s@%s in %s environment: %w", 
+			input.GithubOwner, input.GithubRepo, input.CommitSHA, input.Environment, err)
 	}
 	
 	result := &CreateDeploymentResult{
@@ -135,6 +151,12 @@ func (a *GitHubActivities) CreateGitHubDeployment(ctx context.Context, input Cre
 	logger.Info().
 		Int64("deployment_id", result.DeploymentID).
 		Str("url", result.URL).
+		Str("github_owner", input.GithubOwner).
+		Str("github_repo", input.GithubRepo).
+		Str("commit", input.CommitSHA).
+		Str("environment", input.Environment).
+		Str("harness_execution_id", input.HarnessExecutionID).
+		Dur("duration", time.Since(time.Now())).  // TODO: Track actual duration
 		Msg("Successfully created GitHub deployment")
 	
 	return result, nil
@@ -150,6 +172,10 @@ func (a *GitHubActivities) UpdateGitHubDeploymentStatus(ctx context.Context, inp
 		Str("github_repo", input.GithubRepo).
 		Int64("deployment_id", input.DeploymentID).
 		Str("state", input.State).
+		Str("activity_id", activityInfo.ActivityID).
+		Int32("attempt", activityInfo.Attempt).
+		Str("log_url", input.LogURL).
+		Str("environment_url", input.EnvironmentURL).
 		Msg("Updating GitHub deployment status")
 	
 	// Record heartbeat
@@ -158,7 +184,13 @@ func (a *GitHubActivities) UpdateGitHubDeploymentStatus(ctx context.Context, inp
 	// Create GitHub client
 	client, err := a.clientFactory.CreateClient(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create GitHub client: %w", err)
+		logger.Error().
+			Err(err).
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Int64("deployment_id", input.DeploymentID).
+			Msg("Failed to create GitHub client for status update")
+		return fmt.Errorf("failed to create GitHub client for updating deployment %d status: %w", input.DeploymentID, err)
 	}
 	
 	// Create status request
@@ -180,17 +212,29 @@ func (a *GitHubActivities) UpdateGitHubDeploymentStatus(ctx context.Context, inp
 	activity.RecordHeartbeat(ctx, "Calling GitHub API")
 	
 	// Update deployment status
-	status, _, err := client.Repositories.CreateDeploymentStatus(ctx, input.GithubOwner, input.GithubRepo, input.DeploymentID, statusRequest)
+	status, response, err := client.Repositories.CreateDeploymentStatus(ctx, input.GithubOwner, input.GithubRepo, input.DeploymentID, statusRequest)
 	if err != nil {
-		logger.Error().Err(err).
+		logger.Error().
+			Err(err).
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Int64("deployment_id", input.DeploymentID).
 			Str("state", input.State).
+			Int("http_status", response.StatusCode).
+			Str("response_status", response.Status).
 			Msg("Failed to update GitHub deployment status")
-		return fmt.Errorf("failed to update deployment status: %w", err)
+		return fmt.Errorf("failed to update deployment %d status to %s for %s/%s: %w", 
+			input.DeploymentID, input.State, input.GithubOwner, input.GithubRepo, err)
 	}
 	
 	logger.Info().
+		Int64("deployment_id", input.DeploymentID).
 		Str("state", status.GetState()).
 		Str("url", status.GetURL()).
+		Str("github_owner", input.GithubOwner).
+		Str("github_repo", input.GithubRepo).
+		Int64("status_id", status.GetID()).
+		Time("updated_at", status.GetUpdatedAt().Time).
 		Msg("Successfully updated GitHub deployment status")
 	
 	return nil
@@ -206,6 +250,8 @@ func (a *GitHubActivities) FindGitHubDeployment(ctx context.Context, input FindD
 		Str("github_repo", input.GithubRepo).
 		Str("commit", input.CommitSHA).
 		Str("environment", input.Environment).
+		Str("activity_id", activityInfo.ActivityID).
+		Int32("attempt", activityInfo.Attempt).
 		Msg("Finding GitHub deployment")
 	
 	// Record heartbeat
@@ -214,7 +260,12 @@ func (a *GitHubActivities) FindGitHubDeployment(ctx context.Context, input FindD
 	// Create GitHub client
 	client, err := a.clientFactory.CreateClient(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create GitHub client: %w", err)
+		logger.Error().
+			Err(err).
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Msg("Failed to create GitHub client for deployment lookup")
+		return 0, fmt.Errorf("failed to create GitHub client for finding deployment in %s/%s: %w", input.GithubOwner, input.GithubRepo, err)
 	}
 	
 	// List deployments with filters
@@ -226,13 +277,26 @@ func (a *GitHubActivities) FindGitHubDeployment(ctx context.Context, input FindD
 		},
 	})
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to list GitHub deployments")
-		return 0, fmt.Errorf("failed to list deployments: %w", err)
+		logger.Error().
+			Err(err).
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Str("commit", input.CommitSHA).
+			Str("environment", input.Environment).
+			Msg("Failed to list GitHub deployments")
+		return 0, fmt.Errorf("failed to list deployments for %s/%s@%s in %s environment: %w", 
+			input.GithubOwner, input.GithubRepo, input.CommitSHA, input.Environment, err)
 	}
 	
 	if len(deployments) == 0 {
-		logger.Error().Msg("No deployment found matching criteria")
-		return 0, fmt.Errorf("no deployment found for commit %s in environment %s", input.CommitSHA, input.Environment)
+		logger.Error().
+			Str("github_owner", input.GithubOwner).
+			Str("github_repo", input.GithubRepo).
+			Str("commit", input.CommitSHA).
+			Str("environment", input.Environment).
+			Msg("No deployment found matching criteria")
+		return 0, fmt.Errorf("no deployment found for %s/%s@%s in %s environment", 
+			input.GithubOwner, input.GithubRepo, input.CommitSHA, input.Environment)
 	}
 	
 	// Return the most recent deployment (first in list)
@@ -241,6 +305,11 @@ func (a *GitHubActivities) FindGitHubDeployment(ctx context.Context, input FindD
 	logger.Info().
 		Int64("deployment_id", deploymentID).
 		Int("total_found", len(deployments)).
+		Str("github_owner", input.GithubOwner).
+		Str("github_repo", input.GithubRepo).
+		Str("commit", input.CommitSHA).
+		Str("environment", input.Environment).
+		Time("deployment_created_at", deployments[0].GetCreatedAt().Time).
 		Msg("Successfully found GitHub deployment")
 	
 	return deploymentID, nil

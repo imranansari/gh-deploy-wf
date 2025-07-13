@@ -1,31 +1,117 @@
-# GitHub Deployment Workflow (Temporal)
+# GitHub Deployment Workflow
 
-A simple Temporal workflow for creating and managing GitHub deployments using GitHub Apps authentication.
+Temporal-based system for tracking GitHub deployments triggered by Harness pipeline cloud events.
 
 ## Overview
 
-This MVP demonstrates:
-- Temporal workflow orchestration
-- GitHub App authentication
-- Creating GitHub deployments via API
-- Updating deployment status
+This system orchestrates GitHub deployment creation and status updates using Temporal workflows. It integrates with Harness CI/CD pipelines through an event-driven architecture (EDA) where Harness publishes cloud events that trigger deployment status updates.
 
-## Quick Start
+## Architecture
 
-1. Clone the repository
-2. Set up your GitHub App
-3. Configure environment variables
-4. Run the worker
-5. Execute test workflow
+### Event-Driven Flow
 
-See [Setup Guide](docs/SETUP.md) for detailed instructions.
+1. **Initial Deployment**: Temporal workflow creates GitHub deployment
+2. **Harness Events**: Harness pipeline publishes cloud events for different stages
+3. **Status Updates**: Cloud events trigger Temporal workflows to update deployment status
 
-## Project Status
+### Deployment States
 
-This is an MVP/POC implementation. See [open issues](https://github.com/yourusername/gh-deploy-wf/issues) for planned enhancements.
+- `pending` - CI build started
+- `in_progress` - Deployment in progress (shows spinning indicator in GitHub)
+- `success` - Deployment completed successfully
+- `failure` - Deployment failed
 
-## Documentation
+## Components
 
-- [Design Document](docs/Design.md)
-- [Setup Guide](docs/SETUP.md)
-- [Development Guide](docs/DEVELOPMENT.md)
+### Workflows
+
+- **GitHubDeploymentWorkflow**: Creates initial GitHub deployment
+- **UpdateDeploymentWorkflow**: Updates deployment status based on cloud events
+
+### Activities
+
+- **CreateGitHubDeployment**: Creates deployment in GitHub via API
+- **FindGitHubDeployment**: Finds existing deployment by repo/commit/environment
+- **UpdateGitHubDeploymentStatus**: Updates deployment status
+
+### Configuration
+
+Environment-based configuration using `caarlos0/env`:
+- GitHub App authentication (streamcommander app)
+- Temporal connection settings
+- File-based secrets for Kubernetes compatibility
+
+## Usage
+
+### Start Worker
+
+```bash
+go run worker/main.go
+```
+
+### Create Deployment
+
+```bash
+go run test/main.go
+```
+
+### Test Status Updates
+
+```bash
+go run cmd/update-test/main.go
+```
+
+## Integration with Harness
+
+Harness pipelines publish cloud events containing:
+
+```json
+{
+  "github_owner": "owner",
+  "github_repo": "repo",
+  "commit_sha": "abc123...",
+  "environment": "pr-preview", 
+  "state": "in_progress",
+  "log_url": "https://ci.harness.io/builds/123"
+}
+```
+
+These events trigger `UpdateDeploymentWorkflow` which:
+1. Finds the deployment using repo/commit/environment
+2. Updates the GitHub deployment status
+3. Provides visual feedback in GitHub UI
+
+## Environment Constants
+
+Predefined environment types prevent typos:
+
+- `config.EnvironmentProduction`
+- `config.EnvironmentStaging` 
+- `config.EnvironmentPRPreview`
+- `config.EnvironmentDevelopment`
+- `config.EnvironmentTesting`
+
+## Configuration
+
+Set environment variables or use `.env` file:
+
+```
+TEMPORAL_HOST=localhost:7233
+TEMPORAL_TASK_QUEUE=github-deployments
+GITHUB_APP_ID=319033
+GITHUB_INSTALLATION_ID=36477471
+SECRETS_PATH=.private
+```
+
+## Architecture
+
+See [Architecture Documentation](docs/architecture.md) for:
+- C4 Component diagram showing system boundaries
+- High-level sequence diagram of complete flow
+- Low-level workflow sequence diagrams
+
+## Dependencies
+
+- Temporal Server running on localhost:7233
+- GitHub App with deployment permissions
+- Go 1.21+

@@ -83,13 +83,20 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	}
 	ctx = workflow.WithActivityOptions(ctx, activityOptions)
 	
+	// Get workflow info for structured logging
+	workflowInfo := workflow.GetInfo(ctx)
+	
 	// Log workflow start
 	logger.Info("Starting GitHub deployment workflow",
+		"workflow_id", workflowInfo.WorkflowExecution.ID,
+		"run_id", workflowInfo.WorkflowExecution.RunID,
 		"github_owner", input.GithubOwner,
 		"github_repo", input.GithubRepo,
 		"commit", input.CommitSHA,
 		"environment", input.Environment,
-		"harness_execution_id", input.HarnessExecutionID)
+		"harness_execution_id", input.HarnessExecutionID,
+		"harness_pipeline_id", input.HarnessPipelineID,
+		"is_transient", input.IsTransient)
 	
 	// 1. Create GitHub deployment
 	logger.Info("Creating GitHub deployment")
@@ -110,12 +117,25 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	createDeploymentActivity := workflow.ExecuteActivity(ctx, "CreateGitHubDeployment", createInput)
 	
 	if err := createDeploymentActivity.Get(ctx, &deploymentResult); err != nil {
-		logger.Error("Failed to create GitHub deployment", "error", err)
-		return nil, fmt.Errorf("failed to create deployment: %w", err)
+		logger.Error("Failed to create GitHub deployment",
+			"error", err,
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo,
+			"commit", input.CommitSHA,
+			"environment", input.Environment,
+			"workflow_id", workflowInfo.WorkflowExecution.ID)
+		return nil, fmt.Errorf("failed to create deployment for %s/%s@%s in %s environment: %w", 
+			input.GithubOwner, input.GithubRepo, input.CommitSHA, input.Environment, err)
 	}
 	
 	result.DeploymentID = deploymentResult.DeploymentID
-	logger.Info("GitHub deployment created", "deployment_id", deploymentResult.DeploymentID)
+	logger.Info("GitHub deployment created",
+		"deployment_id", deploymentResult.DeploymentID,
+		"deployment_url", deploymentResult.URL,
+		"github_owner", input.GithubOwner,
+		"github_repo", input.GithubRepo,
+		"commit", input.CommitSHA,
+		"environment", deploymentResult.Environment)
 	
 	// 2. Update to initial status (queued/in_progress)
 	initialStatus := "queued"
@@ -136,11 +156,20 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	updateStatusActivity := workflow.ExecuteActivity(ctx, "UpdateGitHubDeploymentStatus", updateInput)
 	
 	if err := updateStatusActivity.Get(ctx, nil); err != nil {
-		logger.Error("Failed to update initial deployment status", "error", err)
+		logger.Error("Failed to update initial deployment status",
+			"error", err,
+			"deployment_id", deploymentResult.DeploymentID,
+			"target_status", initialStatus,
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo)
 		// Continue anyway - deployment was created
 	} else {
 		result.StatusUpdates++
-		logger.Info("Updated deployment to initial status", "status", initialStatus)
+		logger.Info("Updated deployment to initial status",
+			"status", initialStatus,
+			"deployment_id", deploymentResult.DeploymentID,
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo)
 	}
 	
 	// 3. For MVP, immediately mark as success
@@ -163,13 +192,22 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	finalUpdateActivity := workflow.ExecuteActivity(ctx, "UpdateGitHubDeploymentStatus", finalUpdateInput)
 	
 	if err := finalUpdateActivity.Get(ctx, nil); err != nil {
-		logger.Error("Failed to update final deployment status", "error", err)
+		logger.Error("Failed to update final deployment status",
+			"error", err,
+			"deployment_id", deploymentResult.DeploymentID,
+			"target_status", "success",
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo)
 		result.FinalStatus = "error"
 	} else {
 		result.StatusUpdates++
 		result.FinalStatus = "success"
 		result.EnvironmentURL = input.EnvironmentURL
-		logger.Info("Updated deployment to success status")
+		logger.Info("Updated deployment to success status",
+			"deployment_id", deploymentResult.DeploymentID,
+			"environment_url", input.EnvironmentURL,
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo)
 	}
 	
 	// Calculate final metrics
@@ -178,10 +216,16 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	result.TotalDuration = endTime.Sub(startTime).String()
 	
 	logger.Info("Deployment workflow completed",
+		"workflow_id", workflowInfo.WorkflowExecution.ID,
 		"deployment_id", result.DeploymentID,
 		"final_status", result.FinalStatus,
 		"duration", result.TotalDuration,
-		"status_updates", result.StatusUpdates)
+		"status_updates", result.StatusUpdates,
+		"github_owner", input.GithubOwner,
+		"github_repo", input.GithubRepo,
+		"commit", input.CommitSHA,
+		"environment", input.Environment,
+		"harness_execution_id", input.HarnessExecutionID)
 	
 	return result, nil
 }
@@ -220,13 +264,20 @@ func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput)
 	}
 	ctx = workflow.WithActivityOptions(ctx, activityOptions)
 	
+	// Get workflow info for structured logging
+	workflowInfo := workflow.GetInfo(ctx)
+	
 	// Log workflow start
 	logger.Info("Starting deployment status update workflow",
+		"workflow_id", workflowInfo.WorkflowExecution.ID,
+		"run_id", workflowInfo.WorkflowExecution.RunID,
 		"github_owner", input.GithubOwner,
 		"github_repo", input.GithubRepo,
 		"commit", input.CommitSHA,
 		"environment", input.Environment,
-		"new_state", input.State)
+		"new_state", input.State,
+		"log_url", input.LogURL,
+		"environment_url", input.EnvironmentURL)
 	
 	// 1. Find the existing deployment
 	logger.Info("Finding existing GitHub deployment")
@@ -242,11 +293,23 @@ func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput)
 	findActivity := workflow.ExecuteActivity(ctx, "FindGitHubDeployment", findInput)
 	
 	if err := findActivity.Get(ctx, &deploymentID); err != nil {
-		logger.Error("Failed to find GitHub deployment", "error", err)
-		return fmt.Errorf("failed to find deployment: %w", err)
+		logger.Error("Failed to find GitHub deployment",
+			"error", err,
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo,
+			"commit", input.CommitSHA,
+			"environment", input.Environment,
+			"workflow_id", workflowInfo.WorkflowExecution.ID)
+		return fmt.Errorf("failed to find deployment for %s/%s@%s in %s environment: %w", 
+			input.GithubOwner, input.GithubRepo, input.CommitSHA, input.Environment, err)
 	}
 	
-	logger.Info("Found GitHub deployment", "deployment_id", deploymentID)
+	logger.Info("Found GitHub deployment",
+		"deployment_id", deploymentID,
+		"github_owner", input.GithubOwner,
+		"github_repo", input.GithubRepo,
+		"commit", input.CommitSHA,
+		"environment", input.Environment)
 	
 	// 2. Update deployment status
 	updateInput := activities.UpdateDeploymentStatusInput{
@@ -262,13 +325,27 @@ func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput)
 	updateActivity := workflow.ExecuteActivity(ctx, "UpdateGitHubDeploymentStatus", updateInput)
 	
 	if err := updateActivity.Get(ctx, nil); err != nil {
-		logger.Error("Failed to update deployment status", "error", err)
-		return fmt.Errorf("failed to update deployment status: %w", err)
+		logger.Error("Failed to update deployment status",
+			"error", err,
+			"deployment_id", deploymentID,
+			"target_state", input.State,
+			"github_owner", input.GithubOwner,
+			"github_repo", input.GithubRepo,
+			"workflow_id", workflowInfo.WorkflowExecution.ID)
+		return fmt.Errorf("failed to update deployment %d status to %s for %s/%s: %w", 
+			deploymentID, input.State, input.GithubOwner, input.GithubRepo, err)
 	}
 	
 	logger.Info("Successfully updated deployment status",
+		"workflow_id", workflowInfo.WorkflowExecution.ID,
 		"deployment_id", deploymentID,
-		"new_state", input.State)
+		"new_state", input.State,
+		"github_owner", input.GithubOwner,
+		"github_repo", input.GithubRepo,
+		"commit", input.CommitSHA,
+		"environment", input.Environment,
+		"log_url", input.LogURL,
+		"environment_url", input.EnvironmentURL)
 	
 	return nil
 }
