@@ -110,7 +110,7 @@ func (a *GitHubActivities) CreateGitHubDeployment(ctx context.Context, input Cre
 		Environment:           github.String(input.Environment),
 		Description:           github.String(input.Description),
 		TransientEnvironment:  github.Bool(input.IsTransient),
-		ProductionEnvironment: github.Bool(input.Environment == "production"),
+		ProductionEnvironment: github.Bool(input.Environment == "production"), // TODO: Use config.EnvironmentProduction
 		RequiredContexts:      &[]string{}, // Skip status checks for external deployments
 		AutoMerge:             github.Bool(false),
 		Payload:               payload,

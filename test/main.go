@@ -43,7 +43,7 @@ func main() {
 		CommitSHA:   "3be551363b02cf1d6151ce904bfbe424599c1156",
 
 		// Deployment Configuration
-		Environment: "pr-preview",
+		Environment: config.EnvironmentPRPreview,
 		Description: "Test deployment from Temporal workflow",
 		IsTransient: true, // Preview environments are transient
 

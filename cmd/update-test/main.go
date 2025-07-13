@@ -68,8 +68,8 @@ func main() {
 	baseInput := workflows.DeploymentUpdateInput{
 		GithubOwner: "imranansari",
 		GithubRepo:  "gh-deploy-test",
-		CommitSHA:   "ba8ed367fe42c872a78a89bad371493ad23ffab8", // Use existing commit
-		Environment: "pr-preview",
+		CommitSHA:   "3be551363b02cf1d6151ce904bfbe424599c1156", // Use existing commit
+		Environment: config.EnvironmentPRPreview,
 	}
 
 	// Run each test scenario
@@ -134,10 +134,10 @@ func main() {
 
 	logger.Info().Msg("=== Update Test Results ===")
 	logger.Info().Msgf("✓ Tested %d deployment state updates", len(testScenarios))
-	logger.Info().Msgf("✓ View GitHub Deployments: https://github.com/%s/%s/deployments", 
+	logger.Info().Msgf("✓ View GitHub Deployments: https://github.com/%s/%s/deployments",
 		baseInput.GithubOwner, baseInput.GithubRepo)
-	logger.Info().Msgf("✓ View Temporal Workflows: http://localhost:8233/namespaces/%s/workflows", 
+	logger.Info().Msgf("✓ View Temporal Workflows: http://localhost:8233/namespaces/%s/workflows",
 		cfg.Temporal.Namespace)
-	
+
 	logger.Info().Msg("🎉 Deployment update tests completed!")
 }
