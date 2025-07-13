@@ -40,3 +40,5 @@ temporal/
 # Build artifacts
 dist/
 build/
+
+.private
