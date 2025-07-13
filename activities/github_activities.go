@@ -32,6 +32,14 @@ type CreateDeploymentResult struct {
 	Environment  string `json:"environment"`
 }
 
+// FindDeploymentInput represents input for finding a deployment
+type FindDeploymentInput struct {
+	GithubOwner string `json:"github_owner"`
+	GithubRepo  string `json:"github_repo"`
+	CommitSHA   string `json:"commit_sha"`
+	Environment string `json:"environment"`
+}
+
 // UpdateDeploymentStatusInput represents input for updating deployment status
 type UpdateDeploymentStatusInput struct {
 	GithubOwner    string `json:"github_owner"`
@@ -186,6 +194,56 @@ func (a *GitHubActivities) UpdateGitHubDeploymentStatus(ctx context.Context, inp
 		Msg("Successfully updated GitHub deployment status")
 	
 	return nil
+}
+
+// FindGitHubDeployment finds a deployment by repository, commit SHA, and environment
+func (a *GitHubActivities) FindGitHubDeployment(ctx context.Context, input FindDeploymentInput) (int64, error) {
+	activityInfo := activity.GetInfo(ctx)
+	logger := logging.ActivityLogger("FindGitHubDeployment", activityInfo.WorkflowExecution.ID, activityInfo.WorkflowExecution.RunID)
+	
+	logger.Info().
+		Str("github_owner", input.GithubOwner).
+		Str("github_repo", input.GithubRepo).
+		Str("commit", input.CommitSHA).
+		Str("environment", input.Environment).
+		Msg("Finding GitHub deployment")
+	
+	// Record heartbeat
+	activity.RecordHeartbeat(ctx, "Creating GitHub client")
+	
+	// Create GitHub client
+	client, err := a.clientFactory.CreateClient(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
+	
+	// List deployments with filters
+	deployments, _, err := client.Repositories.ListDeployments(ctx, input.GithubOwner, input.GithubRepo, &github.DeploymentsListOptions{
+		SHA:         input.CommitSHA,
+		Environment: input.Environment,
+		ListOptions: github.ListOptions{
+			PerPage: 10, // Only need recent deployments
+		},
+	})
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to list GitHub deployments")
+		return 0, fmt.Errorf("failed to list deployments: %w", err)
+	}
+	
+	if len(deployments) == 0 {
+		logger.Error().Msg("No deployment found matching criteria")
+		return 0, fmt.Errorf("no deployment found for commit %s in environment %s", input.CommitSHA, input.Environment)
+	}
+	
+	// Return the most recent deployment (first in list)
+	deploymentID := deployments[0].GetID()
+	
+	logger.Info().
+		Int64("deployment_id", deploymentID).
+		Int("total_found", len(deployments)).
+		Msg("Successfully found GitHub deployment")
+	
+	return deploymentID, nil
 }
 
 // truncateDescription ensures description doesn't exceed GitHub's limit

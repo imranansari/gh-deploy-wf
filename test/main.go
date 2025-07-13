@@ -40,7 +40,7 @@ func main() {
 		// GitHub Repository Information
 		GithubOwner: "imranansari",
 		GithubRepo:  "gh-deploy-test",
-		CommitSHA:   "ba8ed367fe42c872a78a89bad371493ad23ffab8",
+		CommitSHA:   "3be551363b02cf1d6151ce904bfbe424599c1156",
 
 		// Deployment Configuration
 		Environment: "pr-preview",

@@ -60,11 +60,13 @@ func main() {
 	
 	// Register workflows
 	w.RegisterWorkflow(workflows.GitHubDeploymentWorkflow)
+	w.RegisterWorkflow(workflows.UpdateDeploymentWorkflow)
 	
 	// Register activities
 	githubActivities := activities.NewGitHubActivities(githubFactory)
 	w.RegisterActivity(githubActivities.CreateGitHubDeployment)
 	w.RegisterActivity(githubActivities.UpdateGitHubDeploymentStatus)
+	w.RegisterActivity(githubActivities.FindGitHubDeployment)
 	
 	// Run worker
 	logger.Info().Msg("Starting Temporal worker")

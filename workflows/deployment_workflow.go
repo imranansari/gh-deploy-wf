@@ -186,6 +186,93 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	return result, nil
 }
 
+// DeploymentUpdateInput represents input for updating an existing deployment's status
+type DeploymentUpdateInput struct {
+	// GitHub Repository Information (to find deployment)
+	GithubOwner string `json:"github_owner"`
+	GithubRepo  string `json:"github_repo"`
+	CommitSHA   string `json:"commit_sha"`
+	Environment string `json:"environment"`
+	
+	// Status Update Information
+	State          string `json:"state"`
+	Description    string `json:"description"`
+	LogURL         string `json:"log_url,omitempty"`
+	EnvironmentURL string `json:"environment_url,omitempty"`
+}
+
+// UpdateDeploymentWorkflow updates an existing GitHub deployment status based on cloud events
+func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput) error {
+	// Create workflow-specific logger
+	logger := workflow.GetLogger(ctx)
+	
+	// Configure activity options
+	activityOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute, // Shorter timeout for updates
+		HeartbeatTimeout:    30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:        time.Second,
+			BackoffCoefficient:     2.0,
+			MaximumInterval:        30 * time.Second,
+			MaximumAttempts:        3,
+			NonRetryableErrorTypes: []string{"ValidationError", "AuthenticationError"},
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, activityOptions)
+	
+	// Log workflow start
+	logger.Info("Starting deployment status update workflow",
+		"github_owner", input.GithubOwner,
+		"github_repo", input.GithubRepo,
+		"commit", input.CommitSHA,
+		"environment", input.Environment,
+		"new_state", input.State)
+	
+	// 1. Find the existing deployment
+	logger.Info("Finding existing GitHub deployment")
+	
+	findInput := activities.FindDeploymentInput{
+		GithubOwner: input.GithubOwner,
+		GithubRepo:  input.GithubRepo,
+		CommitSHA:   input.CommitSHA,
+		Environment: input.Environment,
+	}
+	
+	var deploymentID int64
+	findActivity := workflow.ExecuteActivity(ctx, "FindGitHubDeployment", findInput)
+	
+	if err := findActivity.Get(ctx, &deploymentID); err != nil {
+		logger.Error("Failed to find GitHub deployment", "error", err)
+		return fmt.Errorf("failed to find deployment: %w", err)
+	}
+	
+	logger.Info("Found GitHub deployment", "deployment_id", deploymentID)
+	
+	// 2. Update deployment status
+	updateInput := activities.UpdateDeploymentStatusInput{
+		GithubOwner:    input.GithubOwner,
+		GithubRepo:     input.GithubRepo,
+		DeploymentID:   deploymentID,
+		State:          input.State,
+		Description:    input.Description,
+		LogURL:         input.LogURL,
+		EnvironmentURL: input.EnvironmentURL,
+	}
+	
+	updateActivity := workflow.ExecuteActivity(ctx, "UpdateGitHubDeploymentStatus", updateInput)
+	
+	if err := updateActivity.Get(ctx, nil); err != nil {
+		logger.Error("Failed to update deployment status", "error", err)
+		return fmt.Errorf("failed to update deployment status: %w", err)
+	}
+	
+	logger.Info("Successfully updated deployment status",
+		"deployment_id", deploymentID,
+		"new_state", input.State)
+	
+	return nil
+}
+
 // getInitialStatusDescription returns an appropriate description for the initial status
 func getInitialStatusDescription(status, environment string) string {
 	switch status {
