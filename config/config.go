@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/caarlos0/env/v10"
@@ -104,8 +105,11 @@ func Load() (*Config, error) {
 
 // loadSecrets loads secrets from files
 func loadSecrets(cfg *Config) error {
-	// GitHub App private key
-	privateKeyPath := secrets.GetSecretPath("GITHUB_PRIVATE_KEY_PATH", "/var/secrets/github/private-key.pem")
+	// Get secrets base path
+	secretsPath := getEnv("SECRETS_PATH", ".private")
+	
+	// GitHub App private key (streamcommander)
+	privateKeyPath := fmt.Sprintf("%s/streamcommander.2025-07-12.private-key.pem", secretsPath)
 	
 	privateKey, err := secrets.LoadFromFile(privateKeyPath)
 	if err != nil {
@@ -114,6 +118,14 @@ func loadSecrets(cfg *Config) error {
 	cfg.Secrets.GitHubPrivateKey = privateKey
 	
 	return nil
+}
+
+// Helper function for simple environment variable parsing
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 func validateConfig(cfg *Config) error {
