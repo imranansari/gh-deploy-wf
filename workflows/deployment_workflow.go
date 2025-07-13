@@ -20,7 +20,6 @@ type DeploymentWorkflowInput struct {
 	GithubOwner string `json:"github_owner"`
 	GithubRepo  string `json:"github_repo"`
 	CommitSHA   string `json:"commit_sha"`
-	BranchName  string `json:"branch_name,omitempty"`
 	
 	// Deployment Configuration
 	Environment   string `json:"environment"`
