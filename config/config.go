@@ -41,12 +41,14 @@ type WorkerOptions struct {
 }
 
 type GitHubConfig struct {
-	BaseURL        string          `env:"BASE_URL" envDefault:"https://api.github.com"`
-	UploadURL      string          `env:"UPLOAD_URL" envDefault:"https://uploads.github.com"`
-	Enterprise     bool            `env:"ENTERPRISE" envDefault:"false"`
-	EnterpriseHost string          `env:"ENTERPRISE_HOST"`
+	// GitHub App ID (same for both GitHub.com and Enterprise)
 	AppID          int64           `env:"APP_ID"`
-	InstallationID int64           `env:"INSTALLATION_ID"`
+	
+	// Enterprise GitHub Configuration
+	// Set GITHUB_ENTERPRISE_URL to use Enterprise GitHub
+	// Leave empty to use GitHub.com (temporary - remove when switching to enterprise-only)
+	EnterpriseURL  string          `env:"ENTERPRISE_URL"`
+	
 	RateLimit      RateLimitConfig `envPrefix:"RATE_LIMIT_"`
 }
 
@@ -94,12 +96,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 	
-	// Configure GitHub URLs for enterprise
-	if cfg.GitHub.Enterprise && cfg.GitHub.EnterpriseHost != "" {
-		cfg.GitHub.BaseURL = fmt.Sprintf("https://%s/api/v3", cfg.GitHub.EnterpriseHost)
-		cfg.GitHub.UploadURL = fmt.Sprintf("https://%s/api/uploads", cfg.GitHub.EnterpriseHost)
-	}
-	
 	return cfg, nil
 }
 
@@ -131,9 +127,6 @@ func getEnv(key, defaultValue string) string {
 func validateConfig(cfg *Config) error {
 	if cfg.GitHub.AppID == 0 {
 		return fmt.Errorf("GitHub App ID is required")
-	}
-	if cfg.GitHub.InstallationID == 0 {
-		return fmt.Errorf("GitHub Installation ID is required")
 	}
 	if len(cfg.Secrets.GitHubPrivateKey) == 0 {
 		return fmt.Errorf("GitHub App private key is required")

@@ -37,7 +37,8 @@ This system orchestrates GitHub deployment creation and status updates using Tem
 ### Configuration
 
 Environment-based configuration using `caarlos0/env`:
-- GitHub App authentication (streamcommander app)
+- GitHub App authentication with dynamic installation ID resolution per organization
+- Separate Enterprise and GitHub.com client implementations (no accidental cross-connection)
 - Temporal connection settings
 - File-based secrets for Kubernetes compatibility
 
@@ -99,7 +100,7 @@ Set environment variables or use `.env` file:
 TEMPORAL_HOST=localhost:7233
 TEMPORAL_TASK_QUEUE=github-deployments
 GITHUB_APP_ID=319033
-GITHUB_INSTALLATION_ID=36477471
+GITHUB_ENTERPRISE_URL=  # Set to your Enterprise URL (e.g., https://github.mycompany.com)
 SECRETS_PATH=.private
 ```
 

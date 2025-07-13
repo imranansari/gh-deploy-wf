@@ -113,7 +113,8 @@ func main() {
 			Msg("Update workflow started")
 
 		// Wait for workflow completion
-		err = workflowRun.Get(context.Background(), nil)
+		var result workflows.DeploymentUpdateResult
+		err = workflowRun.Get(context.Background(), &result)
 		if err != nil {
 			logger.Error().
 				Err(err).
@@ -123,6 +124,9 @@ func main() {
 			logger.Info().
 				Str("scenario", scenario.name).
 				Str("state", scenario.state).
+				Int64("deployment_id", result.DeploymentID).
+				Str("updated_status", result.UpdatedStatus).
+				Str("updated_at", result.UpdatedAt).
 				Msg("✓ Update workflow completed successfully")
 		}
 

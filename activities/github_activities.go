@@ -80,15 +80,15 @@ func (a *GitHubActivities) CreateGitHubDeployment(ctx context.Context, input Cre
 	// Record heartbeat
 	activity.RecordHeartbeat(ctx, "Creating GitHub client")
 	
-	// Create GitHub client
-	client, err := a.clientFactory.CreateClient(ctx)
+	// Create GitHub client for the organization
+	client, err := a.clientFactory.CreateClientForOrg(ctx, input.GithubOwner)
 	if err != nil {
 		logger.Error().
 			Err(err).
 			Str("github_owner", input.GithubOwner).
 			Str("github_repo", input.GithubRepo).
-			Msg("Failed to create GitHub client")
-		return nil, fmt.Errorf("failed to create GitHub client for %s/%s: %w", input.GithubOwner, input.GithubRepo, err)
+			Msg("Failed to create GitHub client for organization")
+		return nil, fmt.Errorf("failed to create GitHub client for organization %s: %w", input.GithubOwner, err)
 	}
 	
 	// Prepare deployment payload
@@ -181,16 +181,16 @@ func (a *GitHubActivities) UpdateGitHubDeploymentStatus(ctx context.Context, inp
 	// Record heartbeat
 	activity.RecordHeartbeat(ctx, "Creating GitHub client")
 	
-	// Create GitHub client
-	client, err := a.clientFactory.CreateClient(ctx)
+	// Create GitHub client for the organization
+	client, err := a.clientFactory.CreateClientForOrg(ctx, input.GithubOwner)
 	if err != nil {
 		logger.Error().
 			Err(err).
 			Str("github_owner", input.GithubOwner).
 			Str("github_repo", input.GithubRepo).
 			Int64("deployment_id", input.DeploymentID).
-			Msg("Failed to create GitHub client for status update")
-		return fmt.Errorf("failed to create GitHub client for updating deployment %d status: %w", input.DeploymentID, err)
+			Msg("Failed to create GitHub client for organization")
+		return fmt.Errorf("failed to create GitHub client for organization %s: %w", input.GithubOwner, err)
 	}
 	
 	// Create status request
@@ -257,15 +257,15 @@ func (a *GitHubActivities) FindGitHubDeployment(ctx context.Context, input FindD
 	// Record heartbeat
 	activity.RecordHeartbeat(ctx, "Creating GitHub client")
 	
-	// Create GitHub client
-	client, err := a.clientFactory.CreateClient(ctx)
+	// Create GitHub client for the organization
+	client, err := a.clientFactory.CreateClientForOrg(ctx, input.GithubOwner)
 	if err != nil {
 		logger.Error().
 			Err(err).
 			Str("github_owner", input.GithubOwner).
 			Str("github_repo", input.GithubRepo).
-			Msg("Failed to create GitHub client for deployment lookup")
-		return 0, fmt.Errorf("failed to create GitHub client for finding deployment in %s/%s: %w", input.GithubOwner, input.GithubRepo, err)
+			Msg("Failed to create GitHub client for organization")
+		return 0, fmt.Errorf("failed to create GitHub client for organization %s: %w", input.GithubOwner, err)
 	}
 	
 	// List deployments with filters

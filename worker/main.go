@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,7 +30,8 @@ func main() {
 		Str("environment", cfg.App.Environment).
 		Str("temporal_host", cfg.Temporal.HostPort).
 		Str("task_queue", cfg.Temporal.TaskQueue).
-		Bool("github_enterprise", cfg.GitHub.Enterprise).
+		Str("github_enterprise_url", cfg.GitHub.EnterpriseURL).
+		Bool("using_enterprise", cfg.GitHub.EnterpriseURL != "").
 		Msg("Starting GitHub Deployment Tracker Worker")
 	
 	// Create Temporal client
@@ -44,12 +44,8 @@ func main() {
 	// Create GitHub client factory
 	githubFactory := githubClient.NewClientFactory(cfg.GitHub, cfg.Secrets.GitHubPrivateKey, logger)
 	
-	// Test GitHub authentication
-	ctx := context.Background()
-	if _, err := githubFactory.CreateClient(ctx); err != nil {
-		logger.Fatal().Err(err).Msg("Failed to authenticate with GitHub")
-	}
-	logger.Info().Msg("GitHub authentication successful")
+	// Test GitHub authentication - we'll test with a known org during first workflow execution
+	logger.Info().Msg("GitHub App authentication configured - installation IDs will be resolved dynamically per organization")
 	
 	// Create worker
 	w := worker.New(temporalClient, cfg.Temporal.TaskQueue, worker.Options{

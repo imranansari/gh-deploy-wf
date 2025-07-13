@@ -38,13 +38,13 @@ type DeploymentWorkflowInput struct {
 
 // DeploymentWorkflowResult represents the result of the deployment workflow
 type DeploymentWorkflowResult struct {
-	DeploymentID   int64     `json:"deployment_id"`
-	FinalStatus    string    `json:"final_status"`
-	Environment    string    `json:"environment"`
-	EnvironmentURL string    `json:"environment_url,omitempty"`
-	CompletedAt    time.Time `json:"completed_at"`
-	TotalDuration  string    `json:"total_duration"`
-	StatusUpdates  int       `json:"status_updates"`
+	DeploymentID   int64  `json:"deployment_id"`
+	FinalStatus    string `json:"final_status"`
+	Environment    string `json:"environment"`
+	EnvironmentURL string `json:"environment_url,omitempty"`
+	CompletedAt    string `json:"completed_at"`
+	TotalDuration  string `json:"total_duration"`
+	StatusUpdates  int    `json:"status_updates"`
 }
 
 // DeploymentStatusUpdate represents a status update for the deployment
@@ -69,7 +69,7 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 	
 	startTime := workflow.Now(ctx)
 	
-	// Configure activity options
+	// Configure activity options with comprehensive retry logging
 	activityOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: 2 * time.Minute,
 		HeartbeatTimeout:    30 * time.Second,
@@ -161,7 +161,9 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 			"deployment_id", deploymentResult.DeploymentID,
 			"target_status", initialStatus,
 			"github_owner", input.GithubOwner,
-			"github_repo", input.GithubRepo)
+			"github_repo", input.GithubRepo,
+			"workflow_id", workflowInfo.WorkflowExecution.ID,
+			"activity_retry_count", workflow.GetInfo(ctx).Attempt)
 		// Continue anyway - deployment was created
 	} else {
 		result.StatusUpdates++
@@ -169,14 +171,12 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 			"status", initialStatus,
 			"deployment_id", deploymentResult.DeploymentID,
 			"github_owner", input.GithubOwner,
-			"github_repo", input.GithubRepo)
+			"github_repo", input.GithubRepo,
+			"workflow_id", workflowInfo.WorkflowExecution.ID)
 	}
 	
 	// 3. For MVP, immediately mark as success
 	// In full implementation, this would wait for signals or external updates
-	
-	// Small delay to simulate deployment process
-	workflow.Sleep(ctx, 2*time.Second)
 	
 	// Update to success status
 	finalUpdateInput := activities.UpdateDeploymentStatusInput{
@@ -197,7 +197,9 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 			"deployment_id", deploymentResult.DeploymentID,
 			"target_status", "success",
 			"github_owner", input.GithubOwner,
-			"github_repo", input.GithubRepo)
+			"github_repo", input.GithubRepo,
+			"workflow_id", workflowInfo.WorkflowExecution.ID,
+			"activity_retry_count", workflow.GetInfo(ctx).Attempt)
 		result.FinalStatus = "error"
 	} else {
 		result.StatusUpdates++
@@ -207,13 +209,25 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 			"deployment_id", deploymentResult.DeploymentID,
 			"environment_url", input.EnvironmentURL,
 			"github_owner", input.GithubOwner,
-			"github_repo", input.GithubRepo)
+			"github_repo", input.GithubRepo,
+			"workflow_id", workflowInfo.WorkflowExecution.ID)
 	}
 	
 	// Calculate final metrics
 	endTime := workflow.Now(ctx)
-	result.CompletedAt = endTime
+	result.CompletedAt = endTime.Format(time.RFC3339)
 	result.TotalDuration = endTime.Sub(startTime).String()
+	
+	// Ensure all required fields are set
+	if result.DeploymentID == 0 {
+		logger.Error("DeploymentID is 0 - this should not happen")
+		return nil, fmt.Errorf("deployment ID was not set properly")
+	}
+	
+	if result.FinalStatus == "" {
+		logger.Error("FinalStatus is empty - this should not happen") 
+		result.FinalStatus = "unknown"
+	}
 	
 	logger.Info("Deployment workflow completed",
 		"workflow_id", workflowInfo.WorkflowExecution.ID,
@@ -226,6 +240,12 @@ func GitHubDeploymentWorkflow(ctx workflow.Context, input DeploymentWorkflowInpu
 		"commit", input.CommitSHA,
 		"environment", input.Environment,
 		"harness_execution_id", input.HarnessExecutionID)
+	
+	logger.Info("Returning workflow result",
+		"result_deployment_id", result.DeploymentID,
+		"result_final_status", result.FinalStatus,
+		"result_environment", result.Environment,
+		"result_status_updates", result.StatusUpdates)
 	
 	return result, nil
 }
@@ -245,8 +265,18 @@ type DeploymentUpdateInput struct {
 	EnvironmentURL string `json:"environment_url,omitempty"`
 }
 
+// DeploymentUpdateResult represents the result of a deployment status update
+type DeploymentUpdateResult struct {
+	DeploymentID   int64  `json:"deployment_id"`
+	UpdatedStatus  string `json:"updated_status"`
+	Environment    string `json:"environment"`
+	UpdatedAt      string `json:"updated_at"`
+	LogURL         string `json:"log_url,omitempty"`
+	EnvironmentURL string `json:"environment_url,omitempty"`
+}
+
 // UpdateDeploymentWorkflow updates an existing GitHub deployment status based on cloud events
-func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput) error {
+func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput) (*DeploymentUpdateResult, error) {
 	// Create workflow-specific logger
 	logger := workflow.GetLogger(ctx)
 	
@@ -300,7 +330,7 @@ func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput)
 			"commit", input.CommitSHA,
 			"environment", input.Environment,
 			"workflow_id", workflowInfo.WorkflowExecution.ID)
-		return fmt.Errorf("failed to find deployment for %s/%s@%s in %s environment: %w", 
+		return nil, fmt.Errorf("failed to find deployment for %s/%s@%s in %s environment: %w", 
 			input.GithubOwner, input.GithubRepo, input.CommitSHA, input.Environment, err)
 	}
 	
@@ -331,9 +361,20 @@ func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput)
 			"target_state", input.State,
 			"github_owner", input.GithubOwner,
 			"github_repo", input.GithubRepo,
-			"workflow_id", workflowInfo.WorkflowExecution.ID)
-		return fmt.Errorf("failed to update deployment %d status to %s for %s/%s: %w", 
+			"workflow_id", workflowInfo.WorkflowExecution.ID,
+			"activity_retry_count", workflow.GetInfo(ctx).Attempt)
+		return nil, fmt.Errorf("failed to update deployment %d status to %s for %s/%s: %w", 
 			deploymentID, input.State, input.GithubOwner, input.GithubRepo, err)
+	}
+	
+	// Create result object
+	result := &DeploymentUpdateResult{
+		DeploymentID:   deploymentID,
+		UpdatedStatus:  input.State,
+		Environment:    input.Environment,
+		UpdatedAt:      workflow.Now(ctx).Format(time.RFC3339),
+		LogURL:         input.LogURL,
+		EnvironmentURL: input.EnvironmentURL,
 	}
 	
 	logger.Info("Successfully updated deployment status",
@@ -347,7 +388,7 @@ func UpdateDeploymentWorkflow(ctx workflow.Context, input DeploymentUpdateInput)
 		"log_url", input.LogURL,
 		"environment_url", input.EnvironmentURL)
 	
-	return nil
+	return result, nil
 }
 
 // getInitialStatusDescription returns an appropriate description for the initial status
